@@ -32,4 +32,15 @@ public final class PreparedStatementFactory {
     public String toString() {
         return "[con: " + con.toString() + "]";
     }
+
+    public int infiniteRecursionMethod() {
+        // lets see if the tools catch this one...
+        int returnValue = 100;
+        return infiniteRecursionMethod();
+    }
+
+    public void nullPointerDereference() {
+        final String nullVariable = null;
+        System.out.println(nullVariable.length());
+    }
 }
