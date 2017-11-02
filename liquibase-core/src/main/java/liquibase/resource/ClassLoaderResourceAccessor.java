@@ -1,6 +1,9 @@
 package liquibase.resource;
 
-import liquibase.logging.LogFactory;
+import liquibase.configuration.GlobalConfiguration;
+import liquibase.configuration.LiquibaseConfiguration;
+import liquibase.logging.LogService;
+import liquibase.logging.LogType;
 import liquibase.util.StringUtils;
 
 import java.io.File;
@@ -30,18 +33,18 @@ public class ClassLoaderResourceAccessor extends AbstractResourceAccessor {
     @Override
     public Set<InputStream> getResourcesAsStream(String path) throws IOException {
         Enumeration<URL> resources = classLoader.getResources(path);
-        if (resources == null || !resources.hasMoreElements()) {
+        if ((resources == null) || !resources.hasMoreElements()) {
             return null;
         }
-        Set<String> seenUrls = new HashSet<String>();
-        Set<InputStream> returnSet = new HashSet<InputStream>();
+        Set<String> seenUrls = new HashSet<>();
+        Set<InputStream> returnSet = new HashSet<>();
         while (resources.hasMoreElements()) {
             URL url = resources.nextElement();
             if (seenUrls.contains(url.toExternalForm())) {
                 continue;
             }
             seenUrls.add(url.toExternalForm());
-            LogFactory.getInstance().getLog().debug("Opening "+url.toExternalForm()+" as "+path);
+            LogService.getLog(getClass()).debug(LogType.LOG, "Opening "+url.toExternalForm()+" as "+path);
 
             URLConnection connection = url.openConnection();
             connection.setUseCaches(false);
@@ -60,10 +63,10 @@ public class ClassLoaderResourceAccessor extends AbstractResourceAccessor {
 
         Enumeration<URL> fileUrls = classLoader.getResources(path);
 
-        Set<String> returnSet = new HashSet<String>();
+        Set<String> returnSet = new HashSet<>();
 
         if (!fileUrls.hasMoreElements() && (path.startsWith("jar:") || path.startsWith("file:"))) {
-            fileUrls = new Vector<URL>(Arrays.asList(new URL(path))).elements();
+            fileUrls = new Vector<>(Arrays.asList(new URL(path))).elements();
         }
 
         while (fileUrls.hasMoreElements()) {
@@ -80,7 +83,7 @@ public class ClassLoaderResourceAccessor extends AbstractResourceAccessor {
                 } else {
                     zipFilePath = zipFilePath.replaceFirst("file:", "");
                 }
-                zipFilePath = URLDecoder.decode(zipFilePath, "UTF-8");
+                zipFilePath = URLDecoder.decode(zipFilePath, LiquibaseConfiguration.getInstance().getConfiguration(GlobalConfiguration.class).getOutputEncoding());
 
                 if (path.startsWith("classpath:")) {
                     path = path.replaceFirst("classpath:", "");
@@ -98,28 +101,30 @@ public class ClassLoaderResourceAccessor extends AbstractResourceAccessor {
                 // it works for zip files as well as JAR files
                 JarFile zipfile = new JarFile(zipFilePath, false);
 
-                Enumeration<JarEntry> entries = zipfile.entries();
-                while (entries.hasMoreElements()) {
-                    JarEntry entry = entries.nextElement();
+                try {
+                    Enumeration<JarEntry> entries = zipfile.entries();
+                    while (entries.hasMoreElements()) {
+                        JarEntry entry = entries.nextElement();
 
-                    if (entry.getName().startsWith(path)) {
+                        if (entry.getName().startsWith(path)) {
 
-                        if (!recursive) {
-                            String pathAsDir = path.endsWith("/")
-                                    ? path
-                                    : path + "/";
-                            if (!entry.getName().startsWith(pathAsDir)
-                             || entry.getName().substring(pathAsDir.length()).contains("/")) {
-                                continue;
+                            if (!recursive) {
+                                String pathAsDir = path.endsWith("/") ? path : (path + "/");
+                                if (!entry.getName().startsWith(pathAsDir)
+                                 || entry.getName().substring(pathAsDir.length()).contains("/")) {
+                                    continue;
+                                }
+                            }
+
+                            if (entry.isDirectory() && includeDirectories) {
+                                returnSet.add(entry.getName());
+                            } else if (includeFiles) {
+                                returnSet.add(entry.getName());
                             }
                         }
-
-                        if (entry.isDirectory() && includeDirectories) {
-                            returnSet.add(entry.getName());
-                        } else if (includeFiles) {
-                            returnSet.add(entry.getName());
-                        }
                     }
+                } finally {
+                    zipfile.close();
                 }
             } else {
                 try {
@@ -127,9 +132,7 @@ public class ClassLoaderResourceAccessor extends AbstractResourceAccessor {
                     if (file.exists()) {
                         getContents(file, recursive, includeFiles, includeDirectories, path, returnSet);
                     }
-                } catch (URISyntaxException e) {
-                    //not a local file
-                } catch (IllegalArgumentException e) {
+                } catch (URISyntaxException | IllegalArgumentException e) {
                     //not a local file
                 }
             }
@@ -143,7 +146,7 @@ public class ClassLoaderResourceAccessor extends AbstractResourceAccessor {
             }
         }
 
-        if (returnSet.size() == 0) {
+        if (returnSet.isEmpty()) {
             return null;
         }
         return returnSet;
@@ -158,7 +161,7 @@ public class ClassLoaderResourceAccessor extends AbstractResourceAccessor {
     public String toString() {
         String description;
         if (classLoader instanceof URLClassLoader) {
-            List<String> urls = new ArrayList<String>();
+            List<String> urls = new ArrayList<>();
             for (URL url : ((URLClassLoader) classLoader).getURLs()) {
                 urls.add(url.toExternalForm());
             }

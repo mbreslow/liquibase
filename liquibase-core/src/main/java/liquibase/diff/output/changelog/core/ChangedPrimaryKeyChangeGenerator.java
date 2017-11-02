@@ -18,7 +18,6 @@ import liquibase.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 
 public class ChangedPrimaryKeyChangeGenerator extends AbstractChangeGenerator implements ChangedObjectChangeGenerator {
@@ -42,9 +41,22 @@ public class ChangedPrimaryKeyChangeGenerator extends AbstractChangeGenerator im
 
     @Override
     public Change[] fixChanged(DatabaseObject changedObject, ObjectDifferences differences, DiffOutputControl control, Database referenceDatabase, Database comparisonDatabase, ChangeGeneratorChain chain) {
+
+        //don't try to recreate PKs that differ in just clustered
+        Difference clusteredDiff = differences.getDifference("clustered");
+        if (clusteredDiff != null) {
+            if ((clusteredDiff.getReferenceValue() == null) || (clusteredDiff.getComparedValue() == null)) {
+                differences.removeDifference("clustered");
+            }
+        }
+        if (!differences.hasDifferences()) {
+            return new Change[0];
+        }
+
         PrimaryKey pk = (PrimaryKey) changedObject;
 
-        List<Change> returnList = new ArrayList<Change>();
+        List<Change> returnList = new ArrayList<>();
+
 
         DropPrimaryKeyChange dropPkChange = new DropPrimaryKeyChange();
         dropPkChange.setTableName(pk.getTable().getName());
@@ -57,7 +69,7 @@ public class ChangedPrimaryKeyChangeGenerator extends AbstractChangeGenerator im
 
         if (comparisonDatabase instanceof OracleDatabase) {
             Index backingIndex = pk.getBackingIndex();
-            if (backingIndex != null && backingIndex.getName() != null) {
+            if ((backingIndex != null) && (backingIndex.getName() != null)) {
                 Change[] indexChanges = ChangeGeneratorFactory.getInstance().fixMissing(backingIndex, control, referenceDatabase, comparisonDatabase);
                 if (indexChanges != null) {
                     returnList.addAll(Arrays.asList(indexChanges));
